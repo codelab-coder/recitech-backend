@@ -12,5 +12,5 @@
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^7.5.1",
-    "axios": "^1.7.2"  <-- ADICIONE ESTA LINHA
+    "axios": "^1.7.2" 
   }
