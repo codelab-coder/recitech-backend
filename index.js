@@ -1,5 +1,5 @@
 // ============================================================
-// 🔹 ReciTech Ultra Fast Backend - IA + Cache + Monitoramento
+// 🔹 ReciTech Ultra Fast Backend - IA + Cache Local + Monitoramento
 // ============================================================
 
 import express from "express";
@@ -12,7 +12,6 @@ import axios from "axios";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import crypto from "crypto";
-import Redis from "ioredis";
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
 import statusMonitor from "express-status-monitor";
@@ -27,7 +26,9 @@ const PORT = process.env.PORT || 3001;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/recitech";
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey_dev_only";
 const IA_API_URL = process.env.IA_API_URL || "https://recitech-ia-api.onrender.com";
-const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+
+// Cache local em memória (substitui Redis)
+const memoryCache = new Map();
 
 // ============================================================
 // 2. CORS ROBUSTO (Netlify + Localhost)
@@ -78,18 +79,11 @@ mongoose.connect(MONGO_URI, {
   serverSelectionTimeoutMS: 5000,
   socketTimeoutMS: 45000,
 })
-.then(() => console.log("✅ MongoDB conectado"))
-.catch(err => console.error("❌ Erro MongoDB:", err));
+  .then(() => console.log("✅ MongoDB conectado"))
+  .catch(err => console.error("❌ Erro MongoDB:", err));
 
 // ============================================================
-// 5. REDIS (Cache IA)
-// ============================================================
-const redis = new Redis(REDIS_URL);
-redis.on("connect", () => console.log("✅ Redis conectado para cache IA"));
-redis.on("error", err => console.error("⚠️ Redis erro:", err.message));
-
-// ============================================================
-// 6. SCHEMAS
+// 5. SCHEMAS
 // ============================================================
 const userSchema = new mongoose.Schema({
   email: String,
@@ -110,7 +104,7 @@ const User = mongoose.model("User", userSchema);
 const Material = mongoose.model("Material", materialSchema);
 
 // ============================================================
-// 7. AUTENTICAÇÃO JWT
+// 6. AUTENTICAÇÃO JWT
 // ============================================================
 const authMiddleware = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
@@ -126,7 +120,7 @@ const authMiddleware = (req, res, next) => {
 };
 
 // ============================================================
-// 8. ROTAS DE AUTENTICAÇÃO
+// 7. ROTAS DE AUTENTICAÇÃO
 // ============================================================
 app.get("/", (req, res) => res.json({ success: true, msg: "🚀 Backend ReciTech Ultra Fast online" }));
 
@@ -158,7 +152,7 @@ app.post("/login", async (req, res) => {
 });
 
 // ============================================================
-// 9. UPLOAD E LISTAGEM DE MATERIAIS
+// 8. UPLOAD E LISTAGEM DE MATERIAIS
 // ============================================================
 const MAX_BYTES = 50 * 1024 * 1024;
 const MAX_BASE64_CHARS = Math.ceil((MAX_BYTES * 4) / 3);
@@ -195,7 +189,7 @@ app.get("/materials", authMiddleware, async (req, res) => {
 });
 
 // ============================================================
-// 10. ROTA DE CLASSIFICAÇÃO (IA + Cache + Timeout)
+// 9. CLASSIFICAÇÃO (IA + CACHE LOCAL + TIMEOUT)
 // ============================================================
 app.post("/classify", authMiddleware, async (req, res) => {
   const { photoBase64 } = req.body;
@@ -203,16 +197,20 @@ app.post("/classify", authMiddleware, async (req, res) => {
 
   const hash = crypto.createHash("sha256").update(photoBase64).digest("hex");
 
-  try {
-    const cached = await redis.get(hash);
-    if (cached) {
-      console.log("♻️ IA servida do cache Redis");
-      return res.json(JSON.parse(cached));
-    }
+  // ✅ CACHE LOCAL — evita chamadas repetidas à IA
+  if (memoryCache.has(hash)) {
+    console.log("♻️ IA servida do cache local");
+    return res.json(memoryCache.get(hash));
+  }
 
+  try {
     const response = await axios.post(`${IA_API_URL}/classify`, { photoBase64 }, { timeout: 8000 });
     const data = response.data;
-    await redis.set(hash, JSON.stringify(data), "EX", 21600); // 6h cache
+
+    // Armazena no cache por 6h
+    memoryCache.set(hash, data);
+    setTimeout(() => memoryCache.delete(hash), 6 * 60 * 60 * 1000);
+
     res.json(data);
   } catch (err) {
     console.error("Erro IA:", err.message);
@@ -221,8 +219,9 @@ app.post("/classify", authMiddleware, async (req, res) => {
 });
 
 // ============================================================
-// 11. INICIAR SERVIDOR
+// 10. INICIAR SERVIDOR
 // ============================================================
 app.listen(PORT, () =>
-  console.log(`✅ Backend (optimized) rodando em http://0.0.0.0:${PORT}`)
+  console.log(`✅ Backend (sem Redis) rodando em http://0.0.0.0:${PORT}`)
 );
+
