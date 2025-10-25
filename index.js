@@ -11,8 +11,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/recitech";
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey_dev_only"; // Use uma chave forte
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
-const IA_API_URL = process.env.IA_API_URL || "http://localhost:5000"; // URL da sua IA
+const FRONTEND_URL = process.env.FRONTEND_URL || "https://recitech-mvp.netlify.app";
+const IA_API_URL = process.env.IA_API_URL || "https://recitech-ia-api.onrender.com"; // URL da sua IA
 
 // Middleware
 // Atualizado para usar a variável FRONTEND_URL
