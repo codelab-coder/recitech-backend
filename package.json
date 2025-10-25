@@ -1,7 +1,7 @@
 {
   "name": "recitech-backend",
   "version": "1.0.0",
-  "type": "module", // <-- ADICIONE AQUI
+  "type": "module",
   "description": "Backend ReciTech...",
   "main": "index.js",
 }
