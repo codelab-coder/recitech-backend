@@ -11,7 +11,5 @@
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^7.5.1" 
-    // Garanta que não há vírgula após "^7.5.1" se for o último item.
-    // Garanta que esta linha (comentário) NÃO está presente.
+    "mongoose": "^7.5.1"
   }
