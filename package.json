@@ -1,8 +1,10 @@
 {
   "name": "recitech-backend",
   "version": "1.0.0",
-  "description": "Backend ReciTech + integração FastAPI IA",
+  "type": "module", // <-- ADICIONE AQUI
+  "description": "Backend ReciTech...",
   "main": "index.js",
+}
   "scripts": {
     "start": "node index.js"
   },
