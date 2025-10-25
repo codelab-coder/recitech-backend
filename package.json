@@ -4,16 +4,14 @@
   "description": "Backend ReciTech + integração FastAPI IA",
   "main": "index.js",
   "scripts": {
-    "start": "concurrently \"npm run start:backend\" \"npm run start:ia\"",
-    "start:backend": "node backend/index.js",
-    "start:ia": "uvicorn ia.api_residuos:app --host 0.0.0.0 --port 5000"
+    "start": "node index.js" 
   },
   "dependencies": {
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^7.5.1",
-    "concurrently": "^8.2.2"
+    "mongoose": "^7.5.1"
+    // REMOVA: "concurrently": "^8.2.2" - não é mais necessário
   }
 }
