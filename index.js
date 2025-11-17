@@ -1,5 +1,5 @@
 // ============================================================
-// 🔹 ReciTech Backend - Versão sem bcrypt (MVP)
+// 🔹 ReciTech Backend + Upload via FormData
 // ============================================================
 
 import express from "express";
@@ -10,6 +10,9 @@ import compression from "compression";
 import rateLimit from "express-rate-limit";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
+import jwt from "jsonwebtoken";
+import multer from "multer";
+import fs from "fs";
 
 dotenv.config();
 
@@ -26,11 +29,8 @@ app.use(helmet());
 app.use(compression());
 app.use(bodyParser.json({ limit: "50mb" }));
 
-const limiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 100,
-});
-app.set("trust proxy", 1); // 🔹 importante para deploy
+const limiter = rateLimit({ windowMs: 60 * 1000, max: 100 });
+app.set("trust proxy", 1);
 app.use(limiter);
 
 // ============================================================
@@ -61,8 +61,6 @@ const Material = mongoose.model("Material", materialSchema);
 // ============================================================
 // 🔐 JWT
 // ============================================================
-import jwt from "jsonwebtoken";
-
 const authMiddleware = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ success: false, error: "Token ausente" });
@@ -77,6 +75,12 @@ const authMiddleware = (req, res, next) => {
 };
 
 // ============================================================
+// 🖼️ Multer para upload de arquivos
+// ============================================================
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
+
+// ============================================================
 // 🚀 Rotas
 // ============================================================
 
@@ -86,8 +90,7 @@ app.get("/", (req, res) => res.json({ success: true, msg: "🚀 Backend ReciTech
 // Registro
 app.post("/register", async (req, res) => {
   const { email, password, cnpj } = req.body;
-  if (!email || !password || !cnpj)
-    return res.json({ success: false, error: "Campos obrigatórios" });
+  if (!email || !password || !cnpj) return res.json({ success: false, error: "Campos obrigatórios" });
 
   const exists = await User.findOne({ email });
   if (exists) return res.json({ success: false, error: "Email já cadastrado" });
@@ -109,21 +112,30 @@ app.post("/login", async (req, res) => {
   res.json({ success: true, accessToken: token });
 });
 
-// Upload de materiais (qualquer imagem em Base64)
-app.post("/materials", authMiddleware, async (req, res) => {
-  const { type, quantity, pricePerKg, photoBase64 } = req.body;
-  if (!photoBase64) return res.status(400).json({ success: false, error: "Imagem ausente" });
+// Upload de materiais (via FormData)
+app.post("/materials", authMiddleware, upload.single("photo"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, error: "Imagem ausente" });
 
-  const material = new Material({
-    userId: req.user.id,
-    type: type || "desconhecido",
-    quantity: quantity || 1,
-    pricePerKg: pricePerKg || 0,
-    photoBase64,
-  });
+    const { type, quantity, pricePerKg } = req.body;
 
-  await material.save();
-  res.json({ success: true, material });
+    // Converte buffer para Base64
+    const photoBase64 = req.file.buffer.toString("base64");
+
+    const material = new Material({
+      userId: req.user.id,
+      type: type || "desconhecido",
+      quantity: quantity ? Number(quantity) : 1,
+      pricePerKg: pricePerKg ? Number(pricePerKg) : 0,
+      photoBase64,
+    });
+
+    await material.save();
+    res.json({ success: true, material });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ success: false, error: "Erro no upload" });
+  }
 });
 
 // Listagem de materiais
