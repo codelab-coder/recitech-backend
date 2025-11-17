@@ -16,6 +16,10 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
+
+// ✅ Correção para Render / proxies (obrigatório)
+app.set("trust proxy", 1);
+
 const PORT = process.env.PORT || 3001;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/recitech";
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey_dev_only";
@@ -150,6 +154,7 @@ app.post("/classify", authMiddleware, async (req, res) => {
 app.listen(PORT, () => {
   console.log(`✅ Backend (sem bcrypt) rodando em http://0.0.0.0:${PORT}`);
 });
+
 
 
 
