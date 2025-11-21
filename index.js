@@ -1,5 +1,4 @@
 // index.js — VERSÃO FINAL 100% FUNCIONANDO NO RENDER (21/11/2025)
-
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -24,23 +23,13 @@ app.use(helmet());
 app.use(compression());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
-
 app.use(rateLimit({
-  windowMs: 60 * 1000,   // 60 segundos
+  windowMs: 60 * 1000, // 60 segundos
   max: 100,
   message: { success: false, error: "Muitas requisições, aguarde um minuto." }
 }));
 
-// MongoDB
-try {
-  await mongoose.connect(MONGO_URI);
-  console.log("MongoDB conectado com sucesso!");
-} catch (err) {
-  console.error("Erro ao conectar MongoDB:", err);
-  process.exit(1);
-}
-
-// Schemas
+// Schemas (mover pra antes da conexão)
 const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true, lowercase: true },
   password: { type: String, required: true },
@@ -63,7 +52,6 @@ const Material = mongoose.model("Material", materialSchema);
 const auth = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ success: false, error: "Token ausente" });
-
   try {
     req.user = jwt.verify(token, JWT_SECRET);
     next();
@@ -78,6 +66,17 @@ const upload = multer({
   limits: { fileSize: 12 * 1024 * 1024 }, // 12MB
 });
 
+// MongoDB conexão (agora dentro de async)
+const connectDB = async () => {
+  try {
+    await mongoose.connect(MONGO_URI);
+    console.log("MongoDB conectado com sucesso!");
+  } catch (err) {
+    console.error("Erro ao conectar MongoDB:", err);
+    process.exit(1);
+  }
+};
+
 // Rotas
 app.get("/", (req, res) => {
   res.json({ success: true, message: "ReciTech Backend rodando com Node 22!" });
@@ -89,13 +88,10 @@ app.post("/register", async (req, res) => {
     if (!email || !password || !cnpj) {
       return res.status(400).json({ success: false, error: "Preencha todos os campos" });
     }
-
     const exists = await User.findOne({ $or: [{ email }, { cnpj }] });
     if (exists) return res.status(400).json({ success: false, error: "Email ou CNPJ já cadastrado" });
-
     const hashed = await bcrypt.hash(password, 12);
     await User.create({ email: email.toLowerCase(), password: hashed, cnpj });
-
     res.json({ success: true });
   } catch (e) {
     console.error(e);
@@ -110,7 +106,6 @@ app.post("/login", async (req, res) => {
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(400).json({ success: false, error: "Credenciais inválidas" });
     }
-
     const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "7d" });
     res.json({ success: true, accessToken: token });
   } catch (e) {
@@ -170,8 +165,13 @@ app.get("/materials", auth, async (req, res) => {
   }
 });
 
-// Inicia servidor
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-  console.log(`Acesse: https://recitech-backend.onrender.com`);
-});
+// Inicia servidor (agora com async)
+const startServer = async () => {
+  await connectDB();
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Servidor rodando na porta ${PORT}`);
+    console.log(`Acesse: https://recitech-backend.onrender.com`);
+  });
+};
+
+startServer();
