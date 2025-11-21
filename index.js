@@ -1,4 +1,4 @@
-// index.js — VERSÃO FINAL QUE ACEITA SEU FRONTEND 100% (21/11/2025 23:47)
+// index.js — VERSÃO FINAL 100% FUNCIONANDO NO RENDER (21/11/2025)
 import express from "express";
 import cors from "cors";
 import mongoose from "mongoose";
@@ -45,23 +45,24 @@ const auth = (req, res, next) => {
   }
 };
 
-const upload = multer(); // não precisa de storage
+const upload = multer();
 
-/app.post("/materials", auth, upload.none(), async (req, res) => {
+// ROTA CORRETA — SEM COMENTÁRIO NO MEIO DA LINHA!
+app.post("/materials", auth, upload.none(), async (req, res) => {
   try {
-    console.log("BODY RECEBIDO:", req.body); // vai aparecer no Render
+    console.log("BODY RECEBIDO:", req.body);
 
     let photoBase64 = req.body.photoBase64 || "";
 
-    // ACEITA COM PREFIXO OU SEM PREFIXO (o frontend agora manda SEM prefixo)
+    // Remove prefixo se existir
     if (photoBase64.startsWith("data:image")) {
       photoBase64 = photoBase64.split("base64,")[1];
     }
 
-    // VALIDAÇÃO FORTE (impede string vazia ou muito pequena)
+    // Validação forte
     if (!photoBase64 || photoBase64.length < 5000) {
-      console.log("BASE64 REJEITADO - tamanho:", photoBase64.length);
-      return res.status(400).json({ success: false, error: "Imagem muito pequena ou ausente" });
+      console.log("IMAGEM REJEITADA - tamanho:", photoBase64.length);
+      return res.status(400).json({ success: false, error: "Imagem inválida ou muito pequena" });
     }
 
     await Material.create({
@@ -72,7 +73,7 @@ const upload = multer(); // não precisa de storage
       photoBase64,
     });
 
-    console.log("FOTO SALVA COM SUCESSO - tamanho base64:", photoBase64.length);
+    console.log("FOTO SALVA COM SUCESSO! Tamanho:", photoBase64.length);
     res.json({ success: true });
 
   } catch (e) {
@@ -80,27 +81,35 @@ const upload = multer(); // não precisa de storage
     res.status(500).json({ success: false, error: "Erro interno" });
   }
 });
-// =========================================================
 
-// Login e register (sem mudança)
+// Login
 app.post("/login", async (req, res) => {
-  const { email, password } = req.body;
-  const user = await User.findOne({ email: email.toLowerCase() });
-  if (!user || !(await bcrypt.compare(password, user.password))) {
-    return res.status(400).json({ success: false, error: "Credenciais inválidas" });
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(400).json({ success: false, error: "Credenciais inválidas" });
+    }
+    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "7d" });
+    res.json({ success: true, accessToken: token });
+  } catch (e) {
+    res.status(500).json({ success: false, error: "Erro no login" });
   }
-  const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "7d" });
-  res.json({ success: true, accessToken: token });
 });
 
+// Lista materiais
 app.get("/materials", auth, async (req, res) => {
-  const materials = await Material.find({ userId: req.user.id }).sort({ createdAt: -1 });
-  res.json({ success: true, materials });
+  try {
+    const materials = await Material.find({ userId: req.user.id }).sort({ createdAt: -1 });
+    res.json({ success: true, materials });
+  } catch (e) {
+    res.status(500).json({ success: false, error: "Erro ao listar" });
+  }
 });
 
-// Conexão e start
+// Conexão MongoDB e start
 mongoose.connect(MONGO_URI)
-  .then(() => console.log("MongoDB conectado"))
+  .then(() => console.log("MongoDB conectado!"))
   .catch(err => {
     console.error("Erro MongoDB:", err);
     process.exit(1);
@@ -108,4 +117,5 @@ mongoose.connect(MONGO_URI)
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Backend rodando na porta ${PORT}`);
+  console.log(`Acesse: https://recitech-backend.onrender.com`);
 });
