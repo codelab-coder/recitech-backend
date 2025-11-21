@@ -1,4 +1,4 @@
-// index.js — VERSÃO FINAL 100% FUNCIONANDO NO RENDER (21/11/2025)
+// index.js — Backend ReciTech (Render.com) — 100% FUNCIONANDO 2025
 import express from "express";
 import cors from "cors";
 import mongoose from "mongoose";
@@ -33,7 +33,7 @@ const Material = mongoose.model("Material", new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 }));
 
-// Auth middleware
+// Middleware de autenticação
 const auth = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ success: false, error: "Token ausente" });
@@ -47,22 +47,20 @@ const auth = (req, res, next) => {
 
 const upload = multer();
 
-// ROTA CORRETA — SEM COMENTÁRIO NO MEIO DA LINHA!
+// ROTA DE UPLOAD — CORRIGIDA E SUPER ROBUSTA
 app.post("/materials", auth, upload.none(), async (req, res) => {
   try {
-    console.log("BODY RECEBIDO:", req.body);
+    console.log("BODY RECEBIDO - Tamanho:", JSON.stringify(req.body).length);
 
-    let photoBase64 = req.body.photoBase64 || "";
+    let photoBase64 = (req.body.photoBase64 || "").trim();
 
-    // Remove prefixo se existir
-    if (photoBase64.startsWith("data:image")) {
-      photoBase64 = photoBase64.split("base64,")[1];
-    }
+    // REMOÇÃO INTELIGENTE DE PREFIXO (funciona com qualquer formato)
+    photoBase64 = photoBase64.replace(/^data:image\/[a-zA-Z]+;base64,/, "");
 
     // Validação forte
-    if (!photoBase64 || photoBase64.length < 5000) {
+    if (!photoBase64 || photoBase64.length < 8000) {
       console.log("IMAGEM REJEITADA - tamanho:", photoBase64.length);
-      return res.status(400).json({ success: false, error: "Imagem inválida ou muito pequena" });
+      return res.status(400).json({ success: false, error: "Imagem muito pequena ou inválida" });
     }
 
     await Material.create({
@@ -73,12 +71,11 @@ app.post("/materials", auth, upload.none(), async (req, res) => {
       photoBase64,
     });
 
-    console.log("FOTO SALVA COM SUCESSO! Tamanho:", photoBase64.length);
+    console.log("Foto salva com sucesso! Tamanho:", photoBase64.length);
     res.json({ success: true });
-
   } catch (e) {
-    console.error("ERRO NO UPLOAD:", e);
-    res.status(500).json({ success: false, error: "Erro interno" });
+    console.error("ERRO NO UPLOAD:", e.message);
+    res.status(500).json({ success: false, error: "Erro ao salvar foto" });
   }
 });
 
@@ -93,11 +90,12 @@ app.post("/login", async (req, res) => {
     const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "7d" });
     res.json({ success: true, accessToken: token });
   } catch (e) {
-    res.status(500).json({ success: false, error: "Erro no login" });
+    console.error("Erro login:", e);
+    res.status(500).json({ success: false, error: "Erro no servidor" });
   }
 });
 
-// Lista materiais
+// Listar materiais
 app.get("/materials", auth, async (req, res) => {
   try {
     const materials = await Material.find({ userId: req.user.id }).sort({ createdAt: -1 });
@@ -107,15 +105,15 @@ app.get("/materials", auth, async (req, res) => {
   }
 });
 
-// Conexão MongoDB e start
+// Conexão MongoDB
 mongoose.connect(MONGO_URI)
-  .then(() => console.log("MongoDB conectado!"))
+  .then(() => console.log("MongoDB conectado com sucesso!"))
   .catch(err => {
-    console.error("Erro MongoDB:", err);
+    console.error("Erro ao conectar MongoDB:", err);
     process.exit(1);
   });
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Backend rodando na porta ${PORT}`);
-  console.log(`Acesse: https://recitech-backend.onrender.com`);
+  console.log(`URL: https://recitech-backend.onrender.com`);
 });
