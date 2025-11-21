@@ -23,11 +23,12 @@ app.use(cors());
 app.use(helmet());
 app.use(compression());
 app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ limit: "50mb", extended: true })); // OBRIGATÓRIO pro upload do Expo
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 app.use(rateLimit({
-  windowMs: 60_limit: 100,
-  message: { success: false, error: "Muitas requisições, calma aí!" }
+  windowMs: 60 * 1000,   // 60 segundos
+  max: 100,
+  message: { success: false, error: "Muitas requisições, aguarde um minuto." }
 }));
 
 // MongoDB
