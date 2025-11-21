@@ -47,20 +47,21 @@ const auth = (req, res, next) => {
 
 const upload = multer(); // não precisa de storage
 
-// ====== ROTA QUE AGORA FUNCIONA 100% COM SEU FRONTEND ======
-app.post("/materials", auth, upload.none(), async (req, res) => {
+/app.post("/materials", auth, upload.none(), async (req, res) => {
   try {
-    console.log("BODY RECEBIDO:", req.body); // VOCÊ VAI VER ISSO NO LOG DO RENDER
+    console.log("BODY RECEBIDO:", req.body); // vai aparecer no Render
 
     let photoBase64 = req.body.photoBase64 || "";
 
-    // LINHA MÁGICA QUE SALVA TUDO — aceita com ou sem prefixo
-    if (photoBase64.includes("base64,")) {
+    // ACEITA COM PREFIXO OU SEM PREFIXO (o frontend agora manda SEM prefixo)
+    if (photoBase64.startsWith("data:image")) {
       photoBase64 = photoBase64.split("base64,")[1];
     }
 
-    if (!photoBase64 || photoBase64.length < 1000) {
-      return res.status(400).json({ success: false, error: "Imagem ausente ou inválida" });
+    // VALIDAÇÃO FORTE (impede string vazia ou muito pequena)
+    if (!photoBase64 || photoBase64.length < 5000) {
+      console.log("BASE64 REJEITADO - tamanho:", photoBase64.length);
+      return res.status(400).json({ success: false, error: "Imagem muito pequena ou ausente" });
     }
 
     await Material.create({
@@ -71,10 +72,12 @@ app.post("/materials", auth, upload.none(), async (req, res) => {
       photoBase64,
     });
 
+    console.log("FOTO SALVA COM SUCESSO - tamanho base64:", photoBase64.length);
     res.json({ success: true });
+
   } catch (e) {
-    console.error("ERRO UPLOAD:", e);
-    res.status(500).json({ success: false, error: "Erro ao salvar" });
+    console.error("ERRO NO UPLOAD:", e);
+    res.status(500).json({ success: false, error: "Erro interno" });
   }
 });
 // =========================================================
