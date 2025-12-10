@@ -1,19 +1,16 @@
 {
   "name": "recitech-backend",
-  "version": "2.5.0",
-  "description": "Backend ReciTech MVP 2025 - Carteira Digital + Recompensa Real + Gamificação + Impacto Ambiental + Preparado para Cooperativas (100% alinhado com Nelson Nishiwaki - 01Dez25)",
+  "version": "2.6.0",
+  "description": "Backend ReciTech MVP 2025 – Correção Total",
   "main": "index.js",
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "nodemon index.js"
   },
   "engines": {
-    "node": ">=20.x <=22.x"
+    "node": ">=20.x"
   },
-  "author": "ReciTech Dev Team",
-  "license": "MIT",
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
@@ -27,25 +24,5 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.7"
-  },
-  "keywords": [
-    "recitech",
-    "reciclagem",
-    "economia-circular",
-    "ia-reciclagem",
-    "carteira-digital",
-    "pix",
-    "gamificação",
-    "impacto-ambiental",
-    "cooperativas",
-    "mvp-2025"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/seu-usuario/recitech-backend.git"
-  },
-  "bugs": {
-    "url": "https://github.com/seu-usuario/recitech-backend/issues"
-  },
-  "homepage": "https://recitech.com.br"
+  }
 }
