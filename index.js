@@ -1,276 +1,269 @@
-// ===============================
-//  ReciTech Backend V3 - Unificado
-// ===============================
+// ===========================================
+// ReciTech Backend — Arquivo Único (A + B + C)
+// ===========================================
+
 import express from "express";
 import cors from "cors";
-import mongoose from "mongoose";
+import helmet from "helmet";
 import dotenv from "dotenv";
+import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import rateLimit from "express-rate-limit";
 
 dotenv.config();
-
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: "50mb" }));
+app.use(express.json({ limit: "12mb" }));
+app.use(helmet());
 
-// ===============================
-//  CONFIG
-// ===============================
-const PORT = process.env.PORT || 3001;
-const MONGO_URI = process.env.MONGO_URI;
-const JWT_SECRET = process.env.JWT_SECRET || "recitech_secret_2026";
+// ============================
+// RATE LIMIT
+// ============================
+const limiter = rateLimit({
+  windowMs: 20 * 1000,
+  max: 20,
+});
+app.use(limiter);
 
-// ===============================
-//  DB CONNECTION
-// ===============================
+// ============================
+// DB CONNECT
+// ============================
 mongoose
-  .connect(MONGO_URI, { autoIndex: true })
-  .then(() => console.log("✅ MongoDB conectado"))
-  .catch((err) => console.error("❌ Erro Mongo:", err));
+  .connect(process.env.MONGO_URI, { dbName: "recitech" })
+  .then(() => console.log("MongoDB conectado"))
+  .catch((err) => console.error(err));
 
-// ===============================
-//  MODELS
-// ===============================
-const User = mongoose.model(
-  "User",
-  new mongoose.Schema({
-    email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
+// ============================
+// MODELS
+// ============================
+const UserSchema = new mongoose.Schema({
+  email: String,
+  password: String,
+  saldo: { type: Number, default: 0 },
+  totalKg: { type: Number, default: 0 },
+  totalCo2: { type: Number, default: 0 },
+  rank: { type: String, default: "Bronze" },
+  historicoMensal: { type: [Number], default: [0, 0, 0, 0, 0, 0] },
+});
+const User = mongoose.model("User", UserSchema);
 
-    saldo: { type: Number, default: 0 },
-    totalKg: { type: Number, default: 0 },
-    totalCo2: { type: Number, default: 0 },
+const MaterialSchema = new mongoose.Schema({
+  userId: String,
+  type: String,
+  estimatedKg: Number,
+  value: Number,
+  photoBase64: String,
+  createdAt: { type: Date, default: Date.now },
+});
+const Material = mongoose.model("Material", MaterialSchema);
 
-    rank: { type: String, default: "Bronze" },
-    badges: { type: [String], default: [] },
+const MarketplaceSchema = new mongoose.Schema({
+  userId: String,
+  tipo: String,
+  quantidade: Number,
+  preco: Number,
+  fotoBase64: String,
+  createdAt: { type: Date, default: Date.now },
+});
+const Marketplace = mongoose.model("Marketplace", MarketplaceSchema);
 
-    historicoMensal: { type: [Number], default: [] },
-  })
-);
+const PurchaseSchema = new mongoose.Schema({
+  buyerId: String,
+  sellerId: String,
+  itemId: String,
+  quantidade: Number,
+  total: Number,
+  formaPagamento: String,
+  status: { type: String, default: "pendente" },
+  createdAt: { type: Date, default: Date.now },
+});
+const Purchase = mongoose.model("Purchase", PurchaseSchema);
 
-const Material = mongoose.model(
-  "Material",
-  new mongoose.Schema({
-    userId: String,
-    type: String,
-    estimatedKg: Number,
-    value: Number,
-    confidence: Number,
-    photoBase64: String,
-    createdAt: { type: Date, default: Date.now },
-  })
-);
-
-const Marketplace = mongoose.model(
-  "Marketplace",
-  new mongoose.Schema({
-    userId: String,
-    userEmail: String,
-    tipo: String,
-    quantidade: Number,
-    preco: Number,
-    comprado: { type: Boolean, default: false },
-    comprador: { type: String, default: null },
-    createdAt: { type: Date, default: Date.now },
-  })
-);
-
-// ===============================
-//  AUTH MIDDLEWARE
-// ===============================
-function auth(req, res, next) {
+// ============================
+// AUTH MIDDLEWARE
+// ============================
+const auth = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
-
-  if (!token)
-    return res.status(401).json({ success: false, error: "Token requerido" });
+  if (!token) return res.json({ success: false, error: "Token ausente" });
 
   try {
-    req.user = jwt.verify(token, JWT_SECRET);
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch {
-    res.status(401).json({ success: false, error: "Token inválido" });
+    return res.json({ success: false, error: "Token inválido" });
   }
-}
+};
 
-// ===============================
-//  ROTAS - AUTENTICAÇÃO
-// ===============================
+// ============================
+// AUTH ROUTES
+// ============================
 app.post("/register", async (req, res) => {
-  try {
-    const { email, password } = req.body;
+  const { email, password } = req.body;
 
-    const existe = await User.findOne({ email: email.toLowerCase() });
-    if (existe)
-      return res.json({ success: false, error: "Email já cadastrado" });
+  const exists = await User.findOne({ email });
+  if (exists) return res.json({ success: false, error: "Email já registrado" });
 
-    const hash = await bcrypt.hash(password, 10);
+  const hashed = await bcrypt.hash(password, 10);
 
-    const user = await User.create({
-      email: email.toLowerCase(),
-      password: hash,
-    });
+  const user = await User.create({ email, password: hashed });
 
-    const token = jwt.sign({ id: user._id }, JWT_SECRET, {
-      expiresIn: "7d",
-    });
-
-    res.json({ success: true, accessToken: token });
-  } catch (err) {
-    res.json({ success: false, error: "Erro ao registrar usuário" });
-  }
+  const accessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
+  return res.json({ success: true, accessToken });
 });
 
 app.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
-  const user = await User.findOne({ email: email.toLowerCase() });
-  if (!user) return res.json({ success: false, error: "Usuário não existe" });
+  const user = await User.findOne({ email });
+  if (!user) return res.json({ success: false, error: "Usuário não encontrado" });
 
-  const ok = await bcrypt.compare(password, user.password);
+  const match = await bcrypt.compare(password, user.password);
+  if (!match) return res.json({ success: false, error: "Senha incorreta" });
 
-  if (!ok) return res.json({ success: false, error: "Senha incorreta" });
-
-  const token = jwt.sign({ id: user._id }, JWT_SECRET, {
-    expiresIn: "7d",
-  });
-
-  res.json({ success: true, accessToken: token });
+  const accessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
+  return res.json({ success: true, accessToken });
 });
 
-// ===============================
-//  PERFIL
-// ===============================
+// ============================
+// USER PROFILE
+// ============================
 app.get("/user/profile", auth, async (req, res) => {
-  const user = await User.findById(req.user.id);
-  res.json({ success: true, user });
+  const user = await User.findById(req.user.id).lean();
+  return res.json({ success: true, user });
 });
 
-// ===============================
-//  MATERIAIS (UPLOAD E LISTAGEM)
-// ===============================
+// ============================
+// MATERIAL UPLOAD + FAKE IA
+// ============================
+
+const IA_FAKE_PRECOS = {
+  plástico: 2.8, pet: 3.5,
+  papel: 1.2, papelão: 1.0,
+  metal: 4.5, alumínio: 6.8,
+  vidro: 0.8, orgânico: 0.3,
+  eletrônico: 15.0, bateria: 20.0,
+  óleo: 5.0, desconhecido: 0.5
+};
+
 app.post("/materials", auth, async (req, res) => {
-  const tipos = ["plástico", "papel", "metal", "vidro", "pet", "alumínio"];
-  const tipo = tipos[Math.floor(Math.random() * tipos.length)];
+  const { photoBase64 } = req.body;
 
-  const kg = Number((Math.random() * 1.4 + 0.2).toFixed(2));
-  const precoTabela = {
-    plástico: 2.8,
-    papel: 1.2,
-    metal: 4.5,
-    vidro: 0.8,
-    pet: 3.5,
-    alumínio: 6.8,
-  };
-  const valor = Number((kg * (precoTabela[tipo] || 2)).toFixed(2));
+  if (!photoBase64) return res.json({ success: false, error: "Sem imagem" });
 
-  await User.findByIdAndUpdate(req.user.id, {
-    $inc: { saldo: valor, totalKg: kg, totalCo2: kg * 2.1 },
-    $push: { historicoMensal: { $each: [kg], $slice: -6 } },
-  });
+  // IA FAKE - detecta por random
+  const tipos = Object.keys(IA_FAKE_PRECOS);
+  const type = tipos[Math.floor(Math.random() * tipos.length)];
+
+  const estimatedKg = Number((Math.random() * 1.2 + 0.2).toFixed(2));
+  const value = Number((IA_FAKE_PRECOS[type] * estimatedKg).toFixed(2));
 
   await Material.create({
     userId: req.user.id,
-    type: tipo,
-    estimatedKg: kg,
-    value: valor,
-    confidence: 0.95,
-    photoBase64: req.body.photoBase64,
+    type,
+    estimatedKg,
+    value,
+    photoBase64,
   });
-
-  res.json({ success: true, type: tipo, estimatedKg: kg, value: valor });
-});
-
-app.get("/materials", auth, async (req, res) => {
-  const materiais = await Material.find({ userId: req.user.id }).sort({
-    createdAt: -1,
-  });
-  res.json({ success: true, materials: materiais });
-});
-
-// ===============================
-//  MARKETPLACE
-// ===============================
-app.get("/marketplace", auth, async (req, res) => {
-  const items = await Marketplace.find().sort({ createdAt: -1 });
-  res.json({ success: true, materials: items });
-});
-
-app.post("/marketplace", auth, async (req, res) => {
-  const { tipo, quantidade, preco } = req.body;
 
   const user = await User.findById(req.user.id);
+  user.saldo += value;
+  user.totalKg += estimatedKg;
+  user.totalCo2 += estimatedKg * 2.1;
+  user.save();
+
+  return res.json({ success: true, type, estimatedKg, value });
+});
+
+// ============================
+// MATERIAL LIST
+// ============================
+app.get("/materials", auth, async (req, res) => {
+  const materials = await Material.find({ userId: req.user.id }).sort({ createdAt: -1 });
+  return res.json({ success: true, materials });
+});
+
+// ============================
+// MARKETPLACE CRUD
+// ============================
+app.post("/marketplace", auth, async (req, res) => {
+  const { tipo, quantidade, preco, fotoBase64 } = req.body;
 
   await Marketplace.create({
-    userId: user._id,
-    userEmail: user.email,
-    tipo,
-    quantidade,
-    preco,
+    userId: req.user.id,
+    tipo, quantidade, preco, fotoBase64,
   });
 
-  res.json({ success: true, message: "Item publicado" });
+  return res.json({ success: true });
 });
 
-// ===============================
-//  SIMULAR COMPRA (FUNCIONA NO FRONTEND)
-// ===============================
-app.post("/marketplace/compra", auth, async (req, res) => {
-  const { idItem } = req.body;
+app.get("/marketplace", auth, async (req, res) => {
+  const materials = await Marketplace.find().sort({ createdAt: -1 });
+  return res.json({ success: true, materials });
+});
 
-  const item = await Marketplace.findById(idItem);
+// ============================
+// COMPRA + SIMULAÇÃO PIX
+// ============================
+app.post("/marketplace/buy", auth, async (req, res) => {
+  const { itemId, quantidade, formaPagamento } = req.body;
 
+  const item = await Marketplace.findById(itemId);
   if (!item) return res.json({ success: false, error: "Item não encontrado" });
-  if (item.comprado === true)
-    return res.json({ success: false, error: "Item já comprado" });
 
-  // Marca como comprado
-  item.comprado = true;
-  item.comprador = req.user.id;
+  if (quantidade > item.quantidade)
+    return res.json({ success: false, error: "Quantidade acima do disponível" });
+
+  const total = item.preco * quantidade;
+
+  const compra = await Purchase.create({
+    buyerId: req.user.id,
+    sellerId: item.userId,
+    itemId,
+    quantidade,
+    total,
+    formaPagamento,
+  });
+
+  if (formaPagamento === "pix") {
+    return res.json({
+      success: true,
+      purchaseId: compra._id,
+      valor: total,
+      valorLiquido: total * 0.97,
+      mensagem: "PIX simulado — aguardando pagamento"
+    });
+  }
+
+  // COMPRA SIMULADA
+  item.quantidade -= quantidade;
   await item.save();
 
-  // Desconta saldo (simula a transação)
-  await User.findByIdAndUpdate(req.user.id, {
-    $inc: { saldo: -item.preco },
-  });
-
-  res.json({
-    success: true,
-    mensagem: "Compra simulada com sucesso!",
-    item,
-  });
+  return res.json({ success: true, message: "Compra simulada concluída" });
 });
 
-// ===============================
-//  SAQUE SIMULADO PIX
-// ===============================
+// ============================
+// PIX SAQUE
+// ============================
 app.post("/create-payment-intent", auth, async (req, res) => {
   const { amount } = req.body;
+  const user = await User.findById(req.user.id);
 
-  const taxa = Math.round(amount * 0.1);
-  const valorFinal = (amount - taxa) / 100;
+  const valor = amount / 100;
 
-  await User.findByIdAndUpdate(req.user.id, {
-    $inc: { saldo: -(amount / 100) },
-  });
+  if (valor > user.saldo)
+    return res.json({ success: false, error: "Saldo insuficiente" });
 
-  res.json({
+  user.saldo -= valor;
+  user.save();
+
+  return res.json({
     success: true,
-    mensagem: "PIX solicitado! Pagamento em até 48h.",
-    valorLiquido: valorFinal,
+    message: "Saque PIX solicitado (simulado)."
   });
 });
 
-// ===============================
-//  ROOT
-// ===============================
-app.get("/", (req, res) =>
-  res.send("ReciTech Backend v3.0 — Unificado — Jan/2026")
-);
-
-// ===============================
-//  START SERVER
-// ===============================
-app.listen(PORT, () =>
-  console.log(`🚀 Backend rodando na porta ${PORT}`)
-);
+// ============================
+// START SERVER
+// ============================
+app.listen(3000, () => console.log("ReciTech Backend rodando na porta 3000"));
