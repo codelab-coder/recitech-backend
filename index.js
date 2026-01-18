@@ -1,10 +1,9 @@
 // =============================================
-// ReciTech Backend — Versão FINAL para Render.com (2025)
-// Com recuperação de senha funcional via Resend (grátis)
-// Cálculo realista de CO₂ evitado
-// Dados do vendedor no marketplace
+// ReciTech Backend — Versão FINAL para Render.com (2025/2026)
+// CORS corrigido para https://recitech-mvp.netlify.app
+// Recuperação de senha via Resend
+// Marketplace com dados do vendedor
 // =============================================
-
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -20,15 +19,49 @@ dotenv.config();
 
 const app = express();
 
-// Middlewares
-app.use(cors({
-  origin: process.env.FRONTEND_URL || "*",
-  credentials: true
-}));
+// =============================================
+// CORS CONFIGURAÇÃO CORRIGIDA
+// =============================================
+const allowedOrigins = [
+  'https://recitech-mvp.netlify.app',     // seu deploy principal (com hífen)
+  'https://recitechmvp.netlify.app',      // possível deploy antigo / sem hífen
+  'http://localhost:19006',               // Expo Go
+  'http://localhost:19000',
+  'http://localhost:3000',                // expo start --web
+  'http://localhost:8081',                // Metro bundler
+];
+
+// Função para decidir o origin permitido
+const corsOptions = {
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, origin); // Reflete exatamente o origin recebido
+    } else {
+      console.warn(`[CORS] Origin bloqueado: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+
+// Log para depurar CORS (pode remover depois)
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    console.log(`[OPTIONS] Origin recebido: ${req.headers.origin || 'sem origin'}`);
+  }
+  next();
+});
+
+// Outros middlewares
 app.use(express.json({ limit: "15mb" }));
-app.use(helmet({
-  contentSecurityPolicy: false,
-}));
+app.use(helmet({ contentSecurityPolicy: false }));
 
 // Rate limit global
 const limiter = rateLimit({
@@ -38,7 +71,7 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// Limiter forte para rotas sensíveis
+// Limiter forte para autenticação
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
   max: 10,
@@ -56,7 +89,7 @@ mongoose.connect(process.env.MONGO_URI, { dbName: "recitech" })
   });
 
 // ============================
-// FATORES DE CO₂ EVITADO (kg CO₂/kg reciclado)
+// FATORES DE CO₂ EVITADO
 // ============================
 const CO2_EVIDO_POR_KG = {
   plástico: 2.0,
@@ -126,7 +159,7 @@ const PurchaseSchema = new mongoose.Schema({
 const Purchase = mongoose.model("Purchase", PurchaseSchema);
 
 // ============================
-// CONFIGURAÇÃO DE EMAIL COM RESEND
+// EMAIL COM RESEND
 // ============================
 let transporter;
 if (process.env.RESEND_API_KEY) {
@@ -145,16 +178,16 @@ if (process.env.RESEND_API_KEY) {
 }
 
 // ============================
-// AUTH MIDDLEWARE (com fallback no JWT_SECRET)
+// AUTH MIDDLEWARE
 // ============================
 const auth = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
-  if (!token) return res.json({ success: false, error: "Token ausente" });
+  if (!token) return res.status(401).json({ success: false, error: "Token ausente" });
   try {
     req.user = jwt.verify(token, process.env.JWT_SECRET || "fallback-secret");
     next();
-  } catch {
-    return res.json({ success: false, error: "Token inválido ou expirado" });
+  } catch (err) {
+    return res.status(401).json({ success: false, error: "Token inválido ou expirado" });
   }
 };
 
@@ -170,20 +203,22 @@ app.post("/register", authLimiter, async (req, res) => {
 
   const hashed = await bcrypt.hash(password, 12);
   const user = await User.create({ email, password: hashed });
+
   const accessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET || "fallback-secret", { expiresIn: "7d" });
 
-  console.log(`Novo usuário: ${email}`);
   res.json({ success: true, accessToken });
 });
 
 app.post("/login", authLimiter, async (req, res) => {
   const { email, password } = req.body;
   const user = await User.findOne({ email });
+
   if (!user || !(await bcrypt.compare(password, user.password))) {
     return res.json({ success: false, error: "Email ou senha incorretos" });
   }
+
   const accessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET || "fallback-secret", { expiresIn: "7d" });
-  console.log(`Login: ${email}`);
+
   res.json({ success: true, accessToken });
 });
 
@@ -206,7 +241,7 @@ app.post("/forgot-password", authLimiter, async (req, res) => {
   user.resetPasswordExpires = Date.now() + 3600000; // 1 hora
   await user.save();
 
-  const resetLink = `${process.env.FRONTEND_URL || "https://recitechmvp.netlify.app"}/reset-password?token=${token}`;
+  const resetLink = `${process.env.FRONTEND_URL || "https://recitech-mvp.netlify.app"}/reset-password?token=${token}`;
 
   const mailOptions = {
     from: process.env.FROM_EMAIL || "ReciTech <onboarding@resend.dev>",
@@ -222,8 +257,7 @@ app.post("/forgot-password", authLimiter, async (req, res) => {
             Redefinir senha
           </a>
         </div>
-        <p>Ou copie o link:</p>
-        <p><a href="${resetLink}">${resetLink}</a></p>
+        <p>Ou copie o link: <a href="${resetLink}">${resetLink}</a></p>
         <p>Se não foi você, ignore este email.</p>
         <hr>
         <p style="color: #666; font-size: 14px;">Equipe ReciTech ♻️</p>
@@ -233,7 +267,6 @@ app.post("/forgot-password", authLimiter, async (req, res) => {
 
   try {
     await transporter.sendMail(mailOptions);
-    console.log(`Email de recuperação enviado para: ${email}`);
     res.json({ success: true, message: "Link enviado para seu email!" });
   } catch (err) {
     console.error("Erro ao enviar email:", err);
@@ -281,6 +314,7 @@ app.post("/materials", auth, async (req, res) => {
   await user.save();
 
   console.log(`${user.email} reciclou ${estimatedKg}kg de ${type} → +R$${value} | +${co2Evitado.toFixed(1)}kg CO₂`);
+
   res.json({ success: true, type, estimatedKg, value });
 });
 
@@ -297,6 +331,7 @@ app.post("/marketplace", auth, async (req, res) => {
   }
 
   const user = await User.findById(req.user.id);
+
   await Marketplace.create({
     userId: req.user.id,
     userEmail: user.email,
@@ -310,6 +345,7 @@ app.post("/marketplace", auth, async (req, res) => {
   });
 
   console.log(`${user.email} publicou ${quantidade}kg de ${tipo}`);
+
   res.json({ success: true });
 });
 
@@ -326,6 +362,7 @@ app.post("/marketplace/buy", auth, async (req, res) => {
 
   const item = await Marketplace.findById(itemId);
   if (!item) return res.json({ success: false, error: "Anúncio não encontrado" });
+
   if (quantidade > item.quantidade) return res.json({ success: false, error: "Quantidade indisponível" });
 
   const total = Number((item.preco * quantidade).toFixed(2));
@@ -372,12 +409,14 @@ app.post("/create-payment-intent", auth, async (req, res) => {
 
   const valor = amount / 100;
   const user = await User.findById(req.user.id);
+
   if (valor > user.saldo) return res.json({ success: false, error: "Saldo insuficiente" });
 
   user.saldo -= valor;
   await user.save();
 
   console.log(`${user.email} solicitou saque de R$${valor}`);
+
   res.json({ success: true, message: "Saque solicitado! Chegará em até 48h (simulado)." });
 });
 
@@ -387,5 +426,6 @@ app.post("/create-payment-intent", auth, async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`\n🚀 ReciTech Backend rodando na porta ${PORT}`);
-  console.log(`Frontend: ${process.env.FRONTEND_URL || "não definido"}\n`);
+  console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
+  console.log(`Frontend esperado: ${process.env.FRONTEND_URL || "definido na lista"}`);
 });
