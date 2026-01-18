@@ -1,8 +1,6 @@
 // =============================================
 // ReciTech Backend — Versão FINAL para Render.com (2025/2026)
-// CORS corrigido para https://recitech-mvp.netlify.app
-// Recuperação de senha via Resend
-// Marketplace com dados do vendedor
+// CORS corrigido, chat implementado, compatível com frontend atual
 // =============================================
 import express from "express";
 import cors from "cors";
@@ -20,24 +18,22 @@ dotenv.config();
 const app = express();
 
 // =============================================
-// CORS CONFIGURAÇÃO CORRIGIDA
+// CORS CONFIGURAÇÃO
 // =============================================
 const allowedOrigins = [
-  'https://recitech-mvp.netlify.app',     // seu deploy principal (com hífen)
-  'https://recitechmvp.netlify.app',      // possível deploy antigo / sem hífen
-  'http://localhost:19006',               // Expo Go
+  'https://recitech-mvp.netlify.app',
+  'https://recitechmvp.netlify.app',
+  'http://localhost:19006',
   'http://localhost:19000',
-  'http://localhost:3000',                // expo start --web
-  'http://localhost:8081',                // Metro bundler
+  'http://localhost:3000',
+  'http://localhost:8081',
 ];
 
-// Função para decidir o origin permitido
 const corsOptions = {
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
-
     if (allowedOrigins.includes(origin)) {
-      callback(null, origin); // Reflete exatamente o origin recebido
+      callback(null, origin);
     } else {
       console.warn(`[CORS] Origin bloqueado: ${origin}`);
       callback(new Error('Not allowed by CORS'));
@@ -51,7 +47,6 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Log para depurar CORS (pode remover depois)
 app.use((req, res, next) => {
   if (req.method === 'OPTIONS') {
     console.log(`[OPTIONS] Origin recebido: ${req.headers.origin || 'sem origin'}`);
@@ -65,22 +60,20 @@ app.use(helmet({ contentSecurityPolicy: false }));
 
 // Rate limit global
 const limiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hora
+  windowMs: 60 * 60 * 1000,
   max: 200,
   message: { success: false, error: "Muitas requisições. Tente mais tarde." }
 });
 app.use(limiter);
 
-// Limiter forte para autenticação
+// Limiter para autenticação
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
+  windowMs: 15 * 60 * 1000,
   max: 10,
   message: { success: false, error: "Muitas tentativas. Aguarde 15 minutos." }
 });
 
-// ============================
-// CONEXÃO COM MONGO
-// ============================
+// Conexão MongoDB
 mongoose.connect(process.env.MONGO_URI, { dbName: "recitech" })
   .then(() => console.log("MongoDB conectado com sucesso!"))
   .catch(err => {
@@ -88,9 +81,7 @@ mongoose.connect(process.env.MONGO_URI, { dbName: "recitech" })
     process.exit(1);
   });
 
-// ============================
-// FATORES DE CO₂ EVITADO
-// ============================
+// Fatores de CO₂ evitado
 const CO2_EVIDO_POR_KG = {
   plástico: 2.0,
   pet: 2.5,
@@ -106,9 +97,7 @@ const CO2_EVIDO_POR_KG = {
   desconhecido: 1.5,
 };
 
-// ============================
-// MODELOS
-// ============================
+// Modelos
 const UserSchema = new mongoose.Schema({
   email: { type: String, unique: true, required: true },
   password: String,
@@ -133,7 +122,7 @@ const MaterialSchema = new mongoose.Schema({
 const Material = mongoose.model("Material", MaterialSchema);
 
 const MarketplaceSchema = new mongoose.Schema({
-  userId: String,
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   userEmail: String,
   tipo: String,
   quantidade: Number,
@@ -158,9 +147,26 @@ const PurchaseSchema = new mongoose.Schema({
 });
 const Purchase = mongoose.model("Purchase", PurchaseSchema);
 
-// ============================
-// EMAIL COM RESEND
-// ============================
+// Modelos de Chat
+const ChatSchema = new mongoose.Schema({
+  participants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  relatedMarketplace: { type: mongoose.Schema.Types.ObjectId, ref: 'Marketplace', default: null },
+  createdAt: { type: Date, default: Date.now },
+  lastMessageAt: { type: Date, default: Date.now },
+  lastMessagePreview: String,
+});
+const Chat = mongoose.model('Chat', ChatSchema);
+
+const MessageSchema = new mongoose.Schema({
+  chatId: { type: mongoose.Schema.Types.ObjectId, ref: 'Chat', required: true },
+  senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  text: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now },
+  read: { type: Boolean, default: false },
+});
+const Message = mongoose.model('Message', MessageSchema);
+
+// Email com Resend
 let transporter;
 if (process.env.RESEND_API_KEY) {
   transporter = nodemailer.createTransport({
@@ -177,9 +183,7 @@ if (process.env.RESEND_API_KEY) {
   console.warn("⚠️ RESEND_API_KEY não encontrada. Recuperação de senha desativada.");
 }
 
-// ============================
-// AUTH MIDDLEWARE
-// ============================
+// Auth middleware
 const auth = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ success: false, error: "Token ausente" });
@@ -191,58 +195,43 @@ const auth = (req, res, next) => {
   }
 };
 
-// ============================
-// ROTAS
-// ============================
+// Rotas
 app.post("/register", authLimiter, async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.json({ success: false, error: "Email e senha obrigatórios" });
-
   const exists = await User.findOne({ email });
   if (exists) return res.json({ success: false, error: "Email já registrado" });
-
   const hashed = await bcrypt.hash(password, 12);
   const user = await User.create({ email, password: hashed });
-
   const accessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET || "fallback-secret", { expiresIn: "7d" });
-
   res.json({ success: true, accessToken });
 });
 
 app.post("/login", authLimiter, async (req, res) => {
   const { email, password } = req.body;
   const user = await User.findOne({ email });
-
   if (!user || !(await bcrypt.compare(password, user.password))) {
     return res.json({ success: false, error: "Email ou senha incorretos" });
   }
-
   const accessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET || "fallback-secret", { expiresIn: "7d" });
-
   res.json({ success: true, accessToken });
 });
 
-// Esqueci minha senha
 app.post("/forgot-password", authLimiter, async (req, res) => {
   const { email } = req.body;
   if (!email) return res.json({ success: false, error: "Email obrigatório" });
-
   const user = await User.findOne({ email });
   if (!user) {
     return res.json({ success: true, message: "Se o email existir, enviamos um link." });
   }
-
   if (!transporter) {
     return res.json({ success: false, error: "Serviço de email não configurado." });
   }
-
   const token = crypto.randomBytes(20).toString("hex");
   user.resetPasswordToken = token;
-  user.resetPasswordExpires = Date.now() + 3600000; // 1 hora
+  user.resetPasswordExpires = Date.now() + 3600000;
   await user.save();
-
   const resetLink = `${process.env.FRONTEND_URL || "https://recitech-mvp.netlify.app"}/reset-password?token=${token}`;
-
   const mailOptions = {
     from: process.env.FROM_EMAIL || "ReciTech <onboarding@resend.dev>",
     to: user.email,
@@ -264,7 +253,6 @@ app.post("/forgot-password", authLimiter, async (req, res) => {
       </div>
     `,
   };
-
   try {
     await transporter.sendMail(mailOptions);
     res.json({ success: true, message: "Link enviado para seu email!" });
@@ -274,31 +262,25 @@ app.post("/forgot-password", authLimiter, async (req, res) => {
   }
 });
 
-// Perfil do usuário
 app.get("/user/profile", auth, async (req, res) => {
   const user = await User.findById(req.user.id).select("-password -resetPasswordToken -resetPasswordExpires");
   if (!user) return res.json({ success: false, error: "Usuário não encontrado" });
   res.json({ success: true, user });
 });
 
-// Upload de resíduo (IA simulada + crédito + CO₂)
 app.post("/materials", auth, async (req, res) => {
   const { photoBase64 } = req.body;
   if (!photoBase64) return res.json({ success: false, error: "Foto obrigatória" });
-
   const tipos = Object.keys(CO2_EVIDO_POR_KG);
   const type = tipos[Math.floor(Math.random() * tipos.length)];
   const estimatedKg = Number((Math.random() * 1.4 + 0.1).toFixed(2));
-
   const precoPorKg = {
     plástico: 2.8, pet: 3.5, papel: 1.2, papelão: 1.0,
     metal: 4.5, alumínio: 6.8, vidro: 0.8, orgânico: 0.3,
     eletrônico: 15.0, bateria: 20.0, óleo: 5.0, desconhecido: 0.5
   }[type];
-
   const value = Number((precoPorKg * estimatedKg).toFixed(2));
   const co2Evitado = estimatedKg * CO2_EVIDO_POR_KG[type];
-
   await Material.create({
     userId: req.user.id,
     type,
@@ -306,15 +288,12 @@ app.post("/materials", auth, async (req, res) => {
     value,
     photoBase64,
   });
-
   const user = await User.findById(req.user.id);
   user.saldo += value;
   user.totalKg += estimatedKg;
   user.totalCo2 += co2Evitado;
   await user.save();
-
   console.log(`${user.email} reciclou ${estimatedKg}kg de ${type} → +R$${value} | +${co2Evitado.toFixed(1)}kg CO₂`);
-
   res.json({ success: true, type, estimatedKg, value });
 });
 
@@ -323,15 +302,12 @@ app.get("/materials", auth, async (req, res) => {
   res.json({ success: true, materials });
 });
 
-// Marketplace - Publicar anúncio
 app.post("/marketplace", auth, async (req, res) => {
   const { tipo, quantidade, preco, telefone, cidade, descricao, fotoBase64 } = req.body;
   if (!tipo || !quantidade || !preco) {
     return res.json({ success: false, error: "Tipo, quantidade e preço são obrigatórios" });
   }
-
   const user = await User.findById(req.user.id);
-
   await Marketplace.create({
     userId: req.user.id,
     userEmail: user.email,
@@ -343,31 +319,24 @@ app.post("/marketplace", auth, async (req, res) => {
     descricao: descricao?.trim() || null,
     fotoBase64,
   });
-
   console.log(`${user.email} publicou ${quantidade}kg de ${tipo}`);
-
   res.json({ success: true });
 });
 
-// Marketplace - Listar anúncios (público)
 app.get("/marketplace", async (req, res) => {
-  const materials = await Marketplace.find().sort({ createdAt: -1 });
+  const materials = await Marketplace.find()
+    .populate('userId', 'email')
+    .sort({ createdAt: -1 });
   res.json({ success: true, materials });
 });
 
-// Marketplace - Comprar
 app.post("/marketplace/buy", auth, async (req, res) => {
   const { itemId, quantidade, formaPagamento = "simulado" } = req.body;
   if (!itemId || !quantidade) return res.json({ success: false, error: "Dados incompletos" });
-
   const item = await Marketplace.findById(itemId);
   if (!item) return res.json({ success: false, error: "Anúncio não encontrado" });
-
   if (quantidade > item.quantidade) return res.json({ success: false, error: "Quantidade indisponível" });
-
   const total = Number((item.preco * quantidade).toFixed(2));
-
-  // Registra a compra
   await Purchase.create({
     buyerId: req.user.id,
     sellerId: item.userId,
@@ -376,8 +345,6 @@ app.post("/marketplace/buy", auth, async (req, res) => {
     total,
     formaPagamento,
   });
-
-  // Atualiza estoque
   item.quantidade -= quantidade;
   if (item.quantidade <= 0) {
     await Marketplace.deleteOne({ _id: itemId });
@@ -385,16 +352,12 @@ app.post("/marketplace/buy", auth, async (req, res) => {
   } else {
     await item.save();
   }
-
-  // Crédito ao vendedor (97% do valor)
   const seller = await User.findById(item.userId);
   const valorLiquido = Number((total * 0.97).toFixed(2));
   seller.saldo += valorLiquido;
   await seller.save();
-
   const buyer = await User.findById(req.user.id);
   console.log(`${buyer.email} comprou ${quantidade}kg de ${item.tipo} de ${seller.email} → R$${total}`);
-
   res.json({
     success: true,
     valor: total,
@@ -402,27 +365,87 @@ app.post("/marketplace/buy", auth, async (req, res) => {
   });
 });
 
-// Saque PIX simulado
 app.post("/create-payment-intent", auth, async (req, res) => {
-  const { amount } = req.body; // em centavos
+  const { amount } = req.body;
   if (!amount || amount < 1000) return res.json({ success: false, error: "Mínimo R$10,00" });
-
   const valor = amount / 100;
   const user = await User.findById(req.user.id);
-
   if (valor > user.saldo) return res.json({ success: false, error: "Saldo insuficiente" });
-
   user.saldo -= valor;
   await user.save();
-
   console.log(`${user.email} solicitou saque de R$${valor}`);
-
   res.json({ success: true, message: "Saque solicitado! Chegará em até 48h (simulado)." });
 });
 
-// ============================
-// START SERVER
-// ============================
+// Rotas de Chat
+app.post("/chats", auth, async (req, res) => {
+  const { otherUserId, marketplaceId } = req.body;
+  if (!otherUserId) return res.json({ success: false, error: 'ID do outro usuário obrigatório' });
+
+  let chat = await Chat.findOne({
+    participants: { $all: [req.user.id, otherUserId] },
+  });
+
+  if (!chat) {
+    chat = await Chat.create({
+      participants: [req.user.id, otherUserId],
+      relatedMarketplace: marketplaceId || null,
+    });
+  }
+
+  res.json({ success: true, chatId: chat._id });
+});
+
+app.post("/messages", auth, async (req, res) => {
+  const { chatId, text } = req.body;
+  if (!chatId || !text?.trim()) return res.json({ success: false, error: 'Chat e mensagem obrigatórios' });
+
+  const chat = await Chat.findById(chatId);
+  if (!chat || !chat.participants.includes(req.user.id)) {
+    return res.json({ success: false, error: 'Chat não encontrado ou sem permissão' });
+  }
+
+  const message = await Message.create({
+    chatId,
+    senderId: req.user.id,
+    text: text.trim(),
+  });
+
+  chat.lastMessageAt = new Date();
+  chat.lastMessagePreview = text.length > 60 ? text.substring(0, 57) + '...' : text;
+  await chat.save();
+
+  res.json({ success: true, message });
+});
+
+app.get("/messages/:chatId", auth, async (req, res) => {
+  const { chatId } = req.params;
+
+  const chat = await Chat.findById(chatId);
+  if (!chat || !chat.participants.includes(req.user.id)) {
+    return res.json({ success: false, error: 'Acesso negado' });
+  }
+
+  const messages = await Message.find({ chatId })
+    .populate('senderId', 'email')
+    .sort({ createdAt: 1 });
+
+  res.json({ success: true, messages });
+});
+
+app.get("/chats", auth, async (req, res) => {
+  const chats = await Chat.find({ participants: req.user.id })
+    .populate({
+      path: 'participants',
+      select: 'email',
+    })
+    .populate('relatedMarketplace', 'tipo quantidade preco userEmail')
+    .sort({ lastMessageAt: -1 });
+
+  res.json({ success: true, chats });
+});
+
+// Inicia servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`\n🚀 ReciTech Backend rodando na porta ${PORT}`);
