@@ -1,6 +1,6 @@
 // =============================================
 // ReciTech Backend — Versão FINAL para Render.com (2025/2026)
-// CORS corrigido, chat implementado, trust proxy ativado, email via API HTTP Resend (sem timeout)
+// CORS corrigido, chat implementado, trust proxy ativado, email via API HTTP Resend
 // =============================================
 import express from "express";
 import cors from "cors";
@@ -17,7 +17,7 @@ dotenv.config();
 const app = express();
 
 // ATIVAÇÃO OBRIGATÓRIA PARA Render + proxies
-app.set('trust proxy', 1); // Corrige ERR_ERL_UNEXPECTED_X_FORWARDED_FOR do rate-limit
+app.set('trust proxy', 1);
 
 // CORS CONFIGURAÇÃO
 const allowedOrigins = [
@@ -167,7 +167,7 @@ const MessageSchema = new mongoose.Schema({
 });
 const Message = mongoose.model('Message', MessageSchema);
 
-// Função de envio de email via API HTTP Resend (sem SMTP, sem timeout)
+// Função de envio de email via API HTTP Resend
 const sendResetEmail = async (to, resetLink) => {
   try {
     const response = await fetch('https://api.resend.com/emails', {
@@ -268,6 +268,37 @@ app.post("/forgot-password", authLimiter, async (req, res) => {
   } catch (err) {
     console.error("Falha no envio:", err.message);
     res.json({ success: false, error: "Falha ao enviar email. Tente novamente mais tarde." });
+  }
+});
+
+// Nova rota para processar o reset da senha
+app.post("/reset-password", async (req, res) => {
+  const { token, newPassword } = req.body;
+
+  if (!token || !newPassword || newPassword.length < 6) {
+    return res.json({ success: false, error: "Token e senha nova (mín. 6 caracteres) obrigatórios" });
+  }
+
+  try {
+    const user = await User.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.json({ success: false, error: "Token inválido ou expirado" });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 12);
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+
+    console.log(`Senha resetada com sucesso para: ${user.email}`);
+    res.json({ success: true, message: "Senha alterada! Faça login com a nova senha." });
+  } catch (err) {
+    console.error("Erro ao resetar senha:", err.message);
+    res.json({ success: false, error: "Erro interno ao processar reset" });
   }
 });
 
