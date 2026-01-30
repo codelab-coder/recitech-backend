@@ -1,0 +1,112 @@
+{
+  "users": [
+    {
+      "email": "Teste@teste.com",
+      "nome": "Usuário Teste ReciTech",
+      "tipo": "vendedor",
+      "localizacao": "São Paulo, SP",
+      "saldoCarteira": 1500.00,
+      "dataCadastro": "2026-01-30"
+    },
+    {
+      "email": "comprador1@example.com",
+      "nome": "Empresa Recicladora Fictícia Ltda",
+      "tipo": "comprador",
+      "localizacao": "Rio de Janeiro, RJ",
+      "saldoCarteira": 5000.00,
+      "dataCadastro": "2026-01-15"
+    },
+    {
+      "email": "vendedor2@example.com",
+      "nome": "Catador Autônomo Fictício",
+      "tipo": "vendedor",
+      "localizacao": "Belo Horizonte, MG",
+      "saldoCarteira": 800.00,
+      "dataCadastro": "2026-01-20"
+    }
+  ],
+  "listings": [
+    {
+      "id": "listing001",
+      "vendedorEmail": "Teste@teste.com",
+      "material": "PET (Garrafas Plásticas)",
+      "quantidade": "500 kg",
+      "precoPorKg": 2.00,
+      "descricao": "Garrafas PET limpas e prensadas, prontas para reciclagem. Entrega em SP.",
+      "localizacao": "São Paulo, SP",
+      "dataPostagem": "2026-01-28",
+      "status": "disponivel",
+      "imagem": "https://via.placeholder.com/400x300?text=PET+Reciclavel"
+    },
+    {
+      "id": "listing002",
+      "vendedorEmail": "Teste@teste.com",
+      "material": "Latinhas de Alumínio",
+      "quantidade": "200 kg",
+      "precoPorKg": 8.50,
+      "descricao": "Latinhas amassadas e selecionadas. Alta qualidade para fundição.",
+      "localizacao": "São Paulo, SP",
+      "dataPostagem": "2026-01-29",
+      "status": "disponivel",
+      "imagem": "https://via.placeholder.com/400x300?text=Latinhas+Aluminio"
+    },
+    {
+      "id": "listing003",
+      "vendedorEmail": "vendedor2@example.com",
+      "material": "Papelão",
+      "quantidade": "1000 kg",
+      "precoPorKg": 0.60,
+      "descricao": "Papelão ondulado seco, ideal para reutilização em embalagens.",
+      "localizacao": "Belo Horizonte, MG",
+      "dataPostagem": "2026-01-25",
+      "status": "vendido",
+      "imagem": "https://via.placeholder.com/400x300?text=Papelao"
+    },
+    {
+      "id": "listing004",
+      "vendedorEmail": "Teste@teste.com",
+      "material": "Vidro (Garrafas)",
+      "quantidade": "300 kg",
+      "precoPorKg": 0.50,
+      "descricao": "Garrafas de vidro transparentes, sem rótulos. Para fusão.",
+      "localizacao": "São Paulo, SP",
+      "dataPostagem": "2026-01-30",
+      "status": "disponivel",
+      "imagem": "https://via.placeholder.com/400x300?text=Vidro+Reciclavel"
+    },
+    {
+      "id": "listing005",
+      "vendedorEmail": "vendedor2@example.com",
+      "material": "Eletrônicos (Sucata)",
+      "quantidade": "150 kg",
+      "precoPorKg": 0.65,
+      "descricao": "Placas e componentes eletrônicos usados. Contém metais preciosos.",
+      "localizacao": "Belo Horizonte, MG",
+      "dataPostagem": "2026-01-26",
+      "status": "disponivel",
+      "imagem": "https://via.placeholder.com/400x300?text=Sucata+Eletronicos"
+    }
+  ],
+  "transactions": [
+    {
+      "id": "trans001",
+      "listingId": "listing003",
+      "compradorEmail": "comprador1@example.com",
+      "vendedorEmail": "vendedor2@example.com",
+      "valorTotal": 600.00,
+      "dataTransacao": "2026-01-27",
+      "status": "concluida",
+      "metodoPagamento": "PIX via carteira ReciTech"
+    },
+    {
+      "id": "trans002",
+      "listingId": "listing001",
+      "compradorEmail": "comprador1@example.com",
+      "vendedorEmail": "Teste@teste.com",
+      "valorTotal": 1000.00,
+      "dataTransacao": "2026-01-29",
+      "status": "em_andamento",
+      "metodoPagamento": "PIX via carteira ReciTech"
+    }
+  ]
+}
