@@ -1,4 +1,4 @@
-// =============================================
+/// =============================================
 // ReciTech Backend — Versão FINAL para Render.com (2025/2026)
 // CORS corrigido, chat implementado, trust proxy ativado, email via API HTTP Resend
 // =============================================
@@ -72,6 +72,19 @@ const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   message: { success: false, error: "Muitas tentativas. Aguarde 15 minutos." }
+});
+
+// Rota health check na raiz (para evitar "Cannot GET /" e confirmar status)
+app.get('/', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'ReciTech Backend Online ♻️ | API Marketplace ativa',
+    status: 'healthy',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    mongoStatus: mongoose.connection.readyState === 1 ? 'conectado' : 'desconectado',
+    tip: 'Acesse /marketplace para ver anúncios | Use /login para autenticação'
+  });
 });
 
 // Conexão MongoDB
@@ -198,12 +211,10 @@ const sendResetEmail = async (to, resetLink) => {
         `,
       }),
     });
-
     if (!response.ok) {
       const errorData = await response.json();
       throw new Error(`Resend API error: ${response.status} - ${JSON.stringify(errorData)}`);
     }
-
     console.log(`Email de recuperação enviado para: ${to}`);
     return true;
   } catch (err) {
@@ -249,19 +260,15 @@ app.post("/login", authLimiter, async (req, res) => {
 app.post("/forgot-password", authLimiter, async (req, res) => {
   const { email } = req.body;
   if (!email) return res.json({ success: false, error: "Email obrigatório" });
-
   const user = await User.findOne({ email });
   if (!user) {
     return res.json({ success: true, message: "Se o email existir, enviamos um link." });
   }
-
   const token = crypto.randomBytes(20).toString("hex");
   user.resetPasswordToken = token;
   user.resetPasswordExpires = Date.now() + 3600000;
   await user.save();
-
   const resetLink = `${process.env.FRONTEND_URL || "https://recitech-mvp.netlify.app"}/reset-password?token=${token}`;
-
   try {
     await sendResetEmail(user.email, resetLink);
     res.json({ success: true, message: "Link enviado para seu email!" });
@@ -274,26 +281,21 @@ app.post("/forgot-password", authLimiter, async (req, res) => {
 // Nova rota para processar o reset da senha
 app.post("/reset-password", async (req, res) => {
   const { token, newPassword } = req.body;
-
   if (!token || !newPassword || newPassword.length < 6) {
     return res.json({ success: false, error: "Token e senha nova (mín. 6 caracteres) obrigatórios" });
   }
-
   try {
     const user = await User.findOne({
       resetPasswordToken: token,
       resetPasswordExpires: { $gt: Date.now() }
     });
-
     if (!user) {
       return res.json({ success: false, error: "Token inválido ou expirado" });
     }
-
     user.password = await bcrypt.hash(newPassword, 12);
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
     await user.save();
-
     console.log(`Senha resetada com sucesso para: ${user.email}`);
     res.json({ success: true, message: "Senha alterada! Faça login com a nova senha." });
   } catch (err) {
@@ -421,55 +423,45 @@ app.post("/create-payment-intent", auth, async (req, res) => {
 app.post("/chats", auth, async (req, res) => {
   const { otherUserId, marketplaceId } = req.body;
   if (!otherUserId) return res.json({ success: false, error: 'ID do outro usuário obrigatório' });
-
   let chat = await Chat.findOne({
     participants: { $all: [req.user.id, otherUserId] },
   });
-
   if (!chat) {
     chat = await Chat.create({
       participants: [req.user.id, otherUserId],
       relatedMarketplace: marketplaceId || null,
     });
   }
-
   res.json({ success: true, chatId: chat._id.toString() });
 });
 
 app.post("/messages", auth, async (req, res) => {
   const { chatId, text } = req.body;
   if (!chatId || !text?.trim()) return res.json({ success: false, error: 'Chat e mensagem obrigatórios' });
-
   const chat = await Chat.findById(chatId);
   if (!chat || !chat.participants.includes(req.user.id)) {
     return res.json({ success: false, error: 'Chat não encontrado ou sem permissão' });
   }
-
   const message = await Message.create({
     chatId,
     senderId: req.user.id,
     text: text.trim(),
   });
-
   chat.lastMessageAt = new Date();
   chat.lastMessagePreview = text.length > 60 ? text.substring(0, 57) + '...' : text;
   await chat.save();
-
   res.json({ success: true, message: message.toObject() });
 });
 
 app.get("/messages/:chatId", auth, async (req, res) => {
   const { chatId } = req.params;
-
   const chat = await Chat.findById(chatId);
   if (!chat || !chat.participants.includes(req.user.id)) {
     return res.json({ success: false, error: 'Acesso negado' });
   }
-
   const messages = await Message.find({ chatId })
     .populate('senderId', 'email')
     .sort({ createdAt: 1 });
-
   res.json({ success: true, messages });
 });
 
@@ -481,7 +473,6 @@ app.get("/chats", auth, async (req, res) => {
     })
     .populate('relatedMarketplace', 'tipo quantidade preco userEmail')
     .sort({ lastMessageAt: -1 });
-
   res.json({ success: true, chats });
 });
 
