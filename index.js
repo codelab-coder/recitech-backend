@@ -14,7 +14,6 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import rateLimit from "express-rate-limit";
 import crypto from "crypto";
-import { MercadoPagoConfig, Payment } from "mercadopago";
 
 dotenv.config();
 
@@ -83,17 +82,6 @@ app.get("/", (req, res) => {
 mongoose.connect(process.env.MONGO_URI, { dbName: "recitech" })
   .then(() => console.log("MongoDB conectado!"))
   .catch((err) => { console.error("Erro MongoDB:", err); process.exit(1); });
-
-// ─── MERCADO PAGO ──────────────────────────────────────────────────────────────
-
-if (!process.env.MP_ACCESS_TOKEN) {
-  console.warn("[MERCADO PAGO] MP_ACCESS_TOKEN não definido — pagamentos PIX vão falhar.");
-}
-const mpClient = new MercadoPagoConfig({
-  accessToken: process.env.MP_ACCESS_TOKEN || "",
-  options: { timeout: 8000 },
-});
-const mpPayment = new Payment(mpClient);
 
 // ─── CONSTANTES ────────────────────────────────────────────────────────────────
 
@@ -218,13 +206,6 @@ const NegociacaoSchema = new mongoose.Schema({
   escrow:          { type: Boolean, default: false },
   escrowLiberado:  { type: Boolean, default: false },
 
-  // PIX / Mercado Pago (novo)
-  mpPaymentId:       String,
-  pixQrCode:         String,   // código "copia e cola"
-  pixQrCodeBase64:   String,   // imagem do QR code em base64
-  pixExpiracao:      Date,
-  pixStatus:         { type: String, default: null }, // status bruto retornado pelo Mercado Pago
-
   avaliado: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
@@ -344,73 +325,6 @@ const sendResetEmail = async (to, resetLink) => {
     throw new Error(`Resend error: ${response.status} - ${JSON.stringify(err)}`);
   }
   console.log(`Email enviado para: ${to}`);
-};
-
-// Cria um pagamento PIX no Mercado Pago para uma negociação e devolve os dados do QR code
-const criarPagamentoPix = async ({ negociacaoId, valor, descricao, comprador }) => {
-  const body = {
-    transaction_amount: Number(valor.toFixed(2)),
-    description: descricao.substring(0, 250),
-    payment_method_id: "pix",
-    external_reference: String(negociacaoId),
-    notification_url: process.env.MP_WEBHOOK_URL || `${process.env.BACKEND_URL || ""}/webhook/mercadopago`,
-    payer: {
-      email: comprador.email,
-      first_name: (comprador.nomeCompleto || comprador.nomeEmpresa || comprador.email).split(" ")[0],
-      last_name: (comprador.nomeCompleto || "").split(" ").slice(1).join(" ") || "ReciTech",
-      identification: comprador.cpf
-        ? { type: "CPF", number: comprador.cpf }
-        : undefined,
-    },
-  };
-
-  const result = await mpPayment.create({
-    body,
-    requestOptions: { idempotencyKey: crypto.randomUUID() },
-  });
-
-  const dadosPix = result.point_of_interaction?.transaction_data;
-  if (!dadosPix?.qr_code) {
-    throw new Error("Mercado Pago não retornou os dados do QR code PIX");
-  }
-
-  return {
-    mpPaymentId: String(result.id),
-    pixQrCode: dadosPix.qr_code,
-    pixQrCodeBase64: dadosPix.qr_code_base64,
-    pixStatus: result.status,
-    pixExpiracao: result.date_of_expiration ? new Date(result.date_of_expiration) : null,
-  };
-};
-
-// Aplica os efeitos de um pagamento aprovado (crédito ao vendedor, contadores, etc.)
-const aprovarNegociacao = async (negociacao) => {
-  if (negociacao.status === "finalizado" || negociacao.escrowLiberado) return; // já processada
-  if (negociacao.escrow) {
-    // Escrow: pagamento aprovado, mas valor só é liberado quando a entrega é confirmada
-    negociacao.status = "pagamento_aprovado";
-    await negociacao.save();
-    return;
-  }
-  const vendedor = await User.findById(negociacao.vendedorId);
-  if (!vendedor) return;
-  const valorLiquido = Number((negociacao.valorTotal - negociacao.taxaPlataforma).toFixed(2));
-  vendedor.saldo   += valorLiquido;
-  vendedor.kgTotal  = (vendedor.kgTotal || 0) + negociacao.quantidade;
-  vendedor.totalKg  = vendedor.kgTotal;
-  vendedor.totalNegociacoes = (vendedor.totalNegociacoes || 0) + 1;
-  await vendedor.save();
-
-  negociacao.status         = "pagamento_aprovado";
-  negociacao.escrowLiberado = true;
-  await negociacao.save();
-
-  await Marketplace.updateMany({ userId: negociacao.vendedorId }, {
-    vendedorKgTotal:     vendedor.kgTotal,
-    vendedorNegociacoes: vendedor.totalNegociacoes,
-  });
-
-  console.log(`[PIX APROVADO] Negociação ${negociacao._id} | vendedor creditado R$${valorLiquido}`);
 };
 
 // ─── AUTH MIDDLEWARE ────────────────────────────────────────────────────────────
@@ -739,7 +653,6 @@ app.post("/marketplace/buy", auth, async (req, res) => {
     const taxa          = Number((total * TAXA_PLATAFORMA).toFixed(2));
     const valorLiquido  = Number((total - taxa).toFixed(2));
     const ehEscrow      = formaPagamento === "escrow";
-    const ehPix         = formaPagamento === "pix";
 
     const vendedor = await User.findById(item.userId);
     const comprador = await User.findById(req.user.id);
@@ -761,51 +674,12 @@ app.post("/marketplace/buy", auth, async (req, res) => {
       escrow:         ehEscrow,
     });
 
-    // Reserva/baixa o estoque do anúncio
+    // Atualiza estoque
     item.quantidade -= Number(quantidade);
     if (item.quantidade <= 0) {
       await Marketplace.deleteOne({ _id: itemId });
     } else {
       await item.save();
-    }
-
-    // ── PIX via Mercado Pago ──
-    if (ehPix) {
-      try {
-        const pix = await criarPagamentoPix({
-          negociacaoId: negociacao._id,
-          valor: total,
-          descricao: `ReciTech - ${quantidade}kg de ${item.tipo}`,
-          comprador,
-        });
-
-        negociacao.mpPaymentId     = pix.mpPaymentId;
-        negociacao.pixQrCode       = pix.pixQrCode;
-        negociacao.pixQrCodeBase64 = pix.pixQrCodeBase64;
-        negociacao.pixStatus       = pix.pixStatus;
-        negociacao.pixExpiracao    = pix.pixExpiracao;
-        await negociacao.save();
-
-        console.log(`[PIX CRIADO] Negociação ${negociacao._id} | paymentId ${pix.mpPaymentId} | R$${total}`);
-        return res.json({
-          success: true,
-          valor: total,
-          message: "PIX gerado! Escaneie o QR code ou copie o código para pagar.",
-          negociacaoId: negociacao._id,
-          pix: {
-            qrCode: pix.pixQrCode,
-            qrCodeBase64: pix.pixQrCodeBase64,
-            expiracao: pix.pixExpiracao,
-            paymentId: pix.mpPaymentId,
-          },
-        });
-      } catch (pixErr) {
-        console.error("[PIX ERROR]", pixErr.message);
-        // Desfaz a reserva de estoque já que o pagamento não pôde ser criado
-        await Negociacao.findByIdAndUpdate(negociacao._id, { status: "cancelado" });
-        await Marketplace.findByIdAndUpdate(itemId, { $inc: { quantidade: Number(quantidade) } });
-        return res.json({ success: false, error: "Não foi possível gerar o PIX. Tente novamente." });
-      }
     }
 
     // Escrow: segura o valor (não repassa ainda)
@@ -828,6 +702,7 @@ app.post("/marketplace/buy", auth, async (req, res) => {
     });
 
     const msg =
+      formaPagamento === "pix"    ? `PIX gerado: R$ ${total.toFixed(2)}` :
       formaPagamento === "escrow" ? "Pagamento em escrow! Aguardando confirmação de entrega." :
       "Compra realizada com sucesso!";
 
@@ -836,89 +711,6 @@ app.post("/marketplace/buy", auth, async (req, res) => {
   } catch (err) {
     console.error("[BUY ERROR]", err.message);
     res.json({ success: false, error: "Erro ao processar compra" });
-  }
-});
-
-// GET status atual de um pagamento PIX (para o app fazer polling)
-app.get("/negociacoes/:id/pix-status", auth, async (req, res) => {
-  try {
-    const negociacao = await Negociacao.findById(req.params.id);
-    if (!negociacao) return res.json({ success: false, error: "Negociação não encontrada" });
-    if (
-      String(negociacao.compradorId) !== String(req.user.id) &&
-      String(negociacao.vendedorId)  !== String(req.user.id)
-    ) {
-      return res.json({ success: false, error: "Sem permissão" });
-    }
-    if (!negociacao.mpPaymentId) return res.json({ success: false, error: "Negociação sem pagamento PIX" });
-
-    // Se ainda está aguardando, consulta o Mercado Pago diretamente (fallback ao webhook)
-    if (negociacao.status === "aguardando_pagamento") {
-      try {
-        const mpResult = await mpPayment.get({ id: negociacao.mpPaymentId });
-        negociacao.pixStatus = mpResult.status;
-        if (mpResult.status === "approved") {
-          await aprovarNegociacao(negociacao);
-        } else {
-          await negociacao.save();
-        }
-      } catch (e) {
-        console.error("[PIX STATUS CHECK]", e.message);
-      }
-    }
-
-    res.json({ success: true, status: negociacao.status, pixStatus: negociacao.pixStatus });
-  } catch (err) {
-    console.error("[PIX STATUS ERROR]", err.message);
-    res.json({ success: false, error: "Erro ao consultar status do PIX" });
-  }
-});
-
-// POST webhook do Mercado Pago — recebe notificações de pagamento
-app.post("/webhook/mercadopago", async (req, res) => {
-  // Responde 200 imediatamente para o Mercado Pago não reenviar o evento
-  res.sendStatus(200);
-  try {
-    const { type, action, data } = req.body;
-    const paymentId = data?.id || req.query["data.id"];
-    const isPaymentEvent = type === "payment" || action === "payment.updated" || action === "payment.created";
-    if (!isPaymentEvent || !paymentId) return;
-
-    const mpResult = await mpPayment.get({ id: paymentId });
-    const negociacao = await Negociacao.findOne({ mpPaymentId: String(paymentId) });
-    if (!negociacao) {
-      console.warn(`[WEBHOOK] Negociação não encontrada para paymentId ${paymentId}`);
-      return;
-    }
-
-    negociacao.pixStatus = mpResult.status;
-
-    if (mpResult.status === "approved") {
-      await aprovarNegociacao(negociacao);
-      console.log(`[WEBHOOK] Pagamento ${paymentId} aprovado → negociação ${negociacao._id}`);
-    } else if (["cancelled", "rejected", "refunded"].includes(mpResult.status)) {
-      negociacao.status = "cancelado";
-      await negociacao.save();
-      // Devolve o item ao estoque do vendedor
-      const item = await Marketplace.findById(negociacao.marketplaceId);
-      if (item) {
-        item.quantidade += negociacao.quantidade;
-        await item.save();
-      } else {
-        await Marketplace.create({
-          userId: negociacao.vendedorId,
-          userEmail: negociacao.vendedorEmail,
-          tipo: negociacao.tipo,
-          quantidade: negociacao.quantidade,
-          preco: negociacao.preco,
-        });
-      }
-      console.log(`[WEBHOOK] Pagamento ${paymentId} → ${mpResult.status} → negociação cancelada`);
-    } else {
-      await negociacao.save();
-    }
-  } catch (err) {
-    console.error("[WEBHOOK ERROR]", err.message);
   }
 });
 
