@@ -3,7 +3,6 @@
   "version": "2.6.0",
   "description": "Backend ReciTech MVP 2025 – Versão Final Funcional",
   "main": "index.js",
-  "type": "module",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js"
